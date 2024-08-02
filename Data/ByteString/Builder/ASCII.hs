@@ -71,6 +71,12 @@ module Data.ByteString.Builder.ASCII
     , byteStringHex
     , lazyByteStringHex
 
+      -- *** Fixed resolution numbers
+      --
+    , fixedDec
+    , fixedDec2
+    , fixedDecWord64
+    , fixedDecWord642
     ) where
 
 import           Data.ByteString                                as S
@@ -79,10 +85,14 @@ import           Data.ByteString.Builder.Internal (Builder)
 import qualified Data.ByteString.Builder.Prim                   as P
 import qualified Data.ByteString.Builder.Prim.Internal          as P
 import           Data.ByteString.Builder.RealFloat (floatDec, doubleDec)
+import qualified Data.ByteString.Builder.RealFloat.Internal     as R
 import           Data.ByteString.Internal.Type (c_int_dec_padded9, c_long_long_int_dec_padded18)
 
 import           Foreign
 import           Data.List.NonEmpty (NonEmpty(..))
+import           Data.Fixed (Fixed (..), HasResolution, resolution)
+import           Data.Char (intToDigit)
+import qualified Data.List as List
 
 ------------------------------------------------------------------------------
 -- Decimal Encoding
@@ -313,3 +323,64 @@ intDecPadded :: P.BoundedPrim Int
 intDecPadded = P.liftFixedToBounded $ P.caseWordSize_32_64
     (P.fixedPrim  9 $ c_int_dec_padded9            . fromIntegral)
     (P.fixedPrim 18 $ c_long_long_int_dec_padded18 . fromIntegral)
+
+------------------------------------------------------------------------------
+-- Fixed encoding
+------------------------------------------------------------------------------
+
+-- | Encode a 'Fixed' resolution number using ASCII digits.
+fixedDec :: HasResolution a => Fixed a -> Builder
+fixedDec fa@(MkFixed a) | a < 0 = P.primFixed P.char8 '-' <> fixedDec (asTypeOf (MkFixed (negate a)) fa)
+fixedDec fa@(MkFixed a) = integerDec i <> P.primFixed P.char8 '.' <> P.primMapListFixed P.char8 (List.genericReplicate zeros '0') <> integerDec d
+  where
+    !(i, d) = a `quotRem` resolution fa
+    zeros :: Integer = if d == 0 then 0 else ceiling (logBase 10 (fromIntegral (resolution fa) / fromIntegral d / 10) :: Double)
+
+-- | Encode a 'Fixed' resolution number using ASCII digits, approximated to Word64.
+fixedDecWord64 :: HasResolution a => Fixed a -> Builder
+fixedDecWord64 fa@(MkFixed a) | a < 0 = P.primFixed P.char8 '-' <> fixedDecWord64 (asTypeOf (MkFixed (negate a)) fa)
+fixedDecWord64 fa@(MkFixed a) = word64Dec i <> P.primFixed P.char8 '.' <> P.primMapListFixed P.char8 (List.replicate zeros '0') <> word64Dec d
+  where
+    !(i, d) = fromIntegral a `quotRem` fromIntegral (resolution fa)
+    zeros :: Int = if d == 0 then 0 else ceiling (logBase 10 (fromIntegral (resolution fa) / fromIntegral d / 10) :: Double)
+
+-- | Builder for Fixed resolution numbers.
+fixedDec2 :: HasResolution a => Fixed a -> Builder
+fixedDec2 fa@(MkFixed a) | a < 0 = P.primFixed P.char8 '-' <> fixedDec2 (asTypeOf (MkFixed (negate a)) fa)
+fixedDec2 fa@(MkFixed a) = integerDec i <> P.primFixed P.char8 '.' <> P.primMapListFixed P.char8 (List.reverse (frac digits d))
+  where
+    !(i, d) = a `quotRem` resolution fa
+
+    digits :: Integer = ceiling (logBase 10 (fromIntegral (resolution fa)) :: Double)
+
+    fracNoTrailingZeros 0 0 = mempty
+    fracNoTrailingZeros res 0 = '0' : fracNoTrailingZeros (res - 1) 0
+    fracNoTrailingZeros res d' =
+      let !(i'', d'') = d' `quotRem` 10
+       in (intToDigit (fromIntegral d'')) : fracNoTrailingZeros (res - 1) i''
+
+    frac _ 0 = ['0']
+    frac res d' =
+      let !(i'', d'') = d' `quotRem` 10 
+       in if d'' == 0 then frac (res - 1) i'' else intToDigit (fromIntegral d'') : fracNoTrailingZeros (res - 1) i''
+
+-- | Builder for Fixed resolution numbers.
+fixedDecWord642 :: HasResolution a => Fixed a -> Builder
+fixedDecWord642 fa@(MkFixed a) | a < 0 = P.primFixed P.char8 '-' <> fixedDecWord642 (asTypeOf (MkFixed (negate a)) fa)
+fixedDecWord642 fa@(MkFixed a) = word64Dec i <> P.primFixed P.char8 '.' <> P.primMapListFixed P.char8 (List.reverse (frac (fromIntegral (resolution fa)) d))
+  where
+    !(i, d) = fromIntegral a `quotRem` fromIntegral (resolution fa)
+
+    frac'' 1 = mempty
+    frac'' res = '0' : frac'' (R.dquot10 res)
+
+    frac' 1 0 = mempty
+    frac' res 0 = frac'' res
+    frac' res d' =
+      let !(i'', d'') = R.dquotRem10 d'
+       in intToDigit (fromIntegral d'') : frac' (R.dquot10 res) i''
+
+    frac _ 0 = ['0']
+    frac res d' =
+      let !(i'', d'') = R.dquotRem10 d'
+       in if d'' == 0 then frac (R.dquot10 res) i'' else intToDigit (fromIntegral d'') : frac' (R.dquot10 res) i''

@@ -38,6 +38,8 @@ import           Foreign.ForeignPtr
 import qualified GHC.Exts as Exts
 import           GHC.Ptr (Ptr(..))
 
+import           Data.Fixed (Fixed (..), Milli)
+
 import System.Random
 
 import BenchBoundsCheckFusion
@@ -78,6 +80,14 @@ smallIntegerData = map fromIntegral intData
 {-# NOINLINE largeIntegerData #-}
 largeIntegerData :: [Integer]
 largeIntegerData = map (* (10 ^ (100 :: Integer))) smallIntegerData
+
+{-# NOINLINE smallFixedData #-}
+smallFixedData :: [Milli]
+smallFixedData = map (MkFixed . fromIntegral) [1..nRepl]
+
+{-# NOINLINE largeFixedData #-}
+largeFixedData :: [Milli]
+largeFixedData = map (MkFixed . fromIntegral) [1..nRepl]
 
 
 {-# NOINLINE floatData #-}
@@ -359,6 +369,14 @@ main = do
           -- to Integer.
         , benchB "foldMap integerDec (small)"                     smallIntegerData        $ foldMap integerDec
         , benchB "foldMap integerDec (large)"                     largeIntegerData        $ foldMap integerDec
+        , benchB "foldMap fixedDec (small)"                       smallFixedData          $ foldMap fixedDec
+        , benchB "foldMap fixedDec (large)"                       largeFixedData          $ foldMap fixedDec
+        , benchB "foldMap fixedDecWord64 (small)"                 smallFixedData          $ foldMap fixedDecWord64
+        , benchB "foldMap fixedDecWord64 (large)"                 largeFixedData          $ foldMap fixedDecWord64
+        , benchB "foldMap fixedDec2 (small)"                      smallFixedData          $ foldMap fixedDec2
+        , benchB "foldMap fixedDec2 (large)"                      largeFixedData          $ foldMap fixedDec2
+        , benchB "foldMap fixedDecWord642 (small)"                smallFixedData          $ foldMap fixedDecWord642
+        , benchB "foldMap fixedDecWord642 (large)"                largeFixedData          $ foldMap fixedDecWord642
         ]
       ]
 
